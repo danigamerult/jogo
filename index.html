@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Space Jam - Arena Extrema</title>
+    <style>
+        :root {
+            --neon-blue: #00fbff;
+            --neon-red: #ff0055;
+            --glass: rgba(0, 15, 30, 0.7);
+        }
+
+        body { 
+            margin: 0; background: #010108; overflow: hidden; 
+            display: flex; justify-content: center; align-items: center; 
+            height: 100vh; color: white; font-family: 'Segoe UI', sans-serif;
+        }
+        
+        #game-container { 
+            position: relative; width: 1000px; height: 500px; 
+            border: 3px solid #1a1a3e; border-radius: 10px;
+            box-shadow: 0 0 50px rgba(0, 251, 255, 0.1);
+            background: #000;
+            overflow: hidden;
+        }
+
+        canvas { display: block; filter: contrast(1.1) brightness(1.1); }
+
+        #ui { 
+            position: absolute; top: 0; left: 0; width: 100%; 
+            display: flex; justify-content: space-between; padding: 20px;
+            box-sizing: border-box; pointer-events: none; z-index: 5;
+        }
+
+        .hud-box {
+            background: var(--glass); border-left: 4px solid var(--neon-blue);
+            padding: 10px 20px; backdrop-filter: blur(5px);
+            text-transform: uppercase; font-weight: bold; letter-spacing: 2px;
+        }
+
+        #ability-ui {
+            position: absolute; bottom: 20px; left: 20px;
+            display: flex; flex-direction: column; gap: 10px;
+            pointer-events: none; z-index: 6;
+        }
+
+        .ability-item {
+            background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 5px 10px; width: 180px; border-radius: 4px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .ability-name { font-size: 10px; text-transform: uppercase; margin-bottom: 4px; display: block; }
+        .progress-bg { width: 100%; height: 6px; background: #222; border-radius: 3px; overflow: hidden; }
+        .progress-fill { height: 100%; width: 100%; transition: width 0.1s linear; }
+
+        @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        #powerup-msg { 
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            color: #ffff00; font-weight: bold; font-size: 24px;
+            text-shadow: 0 0 10px rgba(255,255,0,0.8);
+            z-index: 10;
+        }
+
+        #warning-ui {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: var(--neon-red); font-size: 80px; font-weight: 900;
+            text-shadow: 0 0 20px var(--neon-red); display: none;
+            z-index: 20; animation: blink 0.3s infinite alternate;
+        }
+
+        @keyframes blink { from { opacity: 1; } to { opacity: 0.2; } }
+
+        .boss-bar { 
+            position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+            color: var(--neon-red); font-weight: bold; text-transform: uppercase; 
+            border: 2px solid var(--neon-red); padding: 8px 20px; 
+            background: rgba(255, 0, 85, 0.1);
+        }
+
+        #start-screen {
+            position: absolute; inset: 0;
+            background: radial-gradient(circle, rgba(0,20,40,0.95) 0%, rgba(0,0,0,1) 100%);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 100; backdrop-filter: blur(10px);
+        }
+
+        h1 { font-size: 70px; margin: 0; color: #fff; text-shadow: 0 0 20px var(--neon-blue); letter-spacing: 15px; }
+
+        #start-button {
+            padding: 18px 50px; font-size: 22px; background: transparent; color: var(--neon-blue); 
+            border: 2px solid var(--neon-blue); cursor: pointer; transition: 0.4s; font-weight: bold;
+        }
+        #start-button:hover { background: var(--neon-blue); color: #000; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="start-screen">
+            <h1>SPACE JAM</h1>
+            <p>NÍVEL ATUAL: <span id="current-level-display">1</span></p>
+            <button id="start-button">ENGAGE SYSTEM</button>
+        </div>
+
+        <div id="warning-ui">WARNING: BOSS DETECTED</div>
+
+        <div id="ui">
+            <div class="hud-box">PONTOS: <span id="score" style="color:var(--neon-blue)">0</span></div>
+            <div id="bossHealthUI" style="display: none;" class="boss-bar">
+                BOSS DETECTADO: <span id="hp">500</span> HP
+            </div>
+            <div class="hud-box">VIDAS: <span id="lives" style="color:var(--neon-blue)">3</span></div>
+        </div>
+
+        <div id="ability-ui"></div>
+        <div id="powerup-msg"></div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreElement = document.getElementById("score");
+    const livesElement = document.getElementById("lives");
+    const powerMsg = document.getElementById("powerup-msg");
+    const warningUI = document.getElementById("warning-ui");
+    const bossHealthUI = document.getElementById("bossHealthUI");
+    const hpElement = document.getElementById("hp");
+    const startScreen = document.getElementById("start-screen");
+    const startButton = document.getElementById("start-button");
+    const abilityUI = document.getElementById("ability-ui");
+
+    canvas.width = 1000;
+    canvas.height = 500;
+
+    // --- CONFIGURAÇÃO DE SPRITES DE EXPLOSÃO ---
+    const explosionSprite = new Image();
+    explosionSprite.src = 'explosao_sheet.png'; 
+    const EXPLOSION_FRAMES = 8; // Número de colunas no seu spritesheet
+    const EXPLOSION_SPEED = 0.2; // Velocidade da animação
+    let activeExplosions = [];
+
+    let screenShake = 0;
+    let playerRotation = 0;
+    let comboCount = 0;
+    let lastKillTime = 0;
+    let engineParticles = [];
+    let comboTexts = [];
+    let afterimages = []; 
+
+    const starsLayer1 = Array.from({ length: 40 }, () => ({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: 1, speed: 0.5 }));
+    const starsLayer2 = Array.from({ length: 20 }, () => ({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: 2.5, speed: 4 }));
+
+    const images = {};
+    const imageSources = { player: 'download.png', enemy: 'inimigo.png', boss: 'boss.png', bg: 'fundo.png' };
+    const powerupImages = { shield: 'escudo.png', life: 'vida.png', ammo: 'municao.png', reflector: 'refletor.png', bomb: 'bomba.png' };
+    const pImgs = {};
+    let imagesLoaded = 0;
+    const totalToLoad = Object.keys(imageSources).length + Object.keys(powerupImages).length;
+
+    function checkLoad() { if (++imagesLoaded === totalToLoad) console.log("Ativos prontos"); }
+    for (let key in imageSources) {
+        images[key] = new Image(); images[key].src = imageSources[key];
+        images[key].onload = checkLoad; images[key].onerror = checkLoad;
+    }
+    for (let key in powerupImages) {
+        pImgs[key] = new Image(); pImgs[key].src = powerupImages[key];
+        pImgs[key].onload = checkLoad; pImgs[key].onerror = checkLoad;
+    }
+
+    let gameStarted = false;
+    let score = 0, lives = 3, gameActive = true, isBossFight = false;
+    let lastBossShot = 0;
+    let gameLevel = 1; 
+    let powerupsActive = { shield: false, tripleShot: false, reflector: false, bombs: false };
+
+    const player = { x: 50, y: 225, width: 60, height: 60, speed: 7 };
+    const boss = { x: 1100, y: 150, width: 220, height: 170, hp: 500, maxHp: 500, active: false, speed: 8, dirX: -1, dirY: 1 };
+    
+    let bullets = [], bossBullets = [], enemies = [], powerups = [], particles = [];
+    const keys = {};
+
+    const types = [
+        { id: 'shield', name: 'ESCUDO IONIZADO', color: '#00fbff', effect: () => showAbilityBar('shield', 'ESCUDO IONIZADO', '#00fbff', 10000) },
+        { id: 'life', name: 'NÚCLEO DE VIDA', color: '#ff0000', effect: () => { lives++; livesElement.innerText = lives; } },
+        { id: 'ammo', name: 'CANHÃO TRIPLO', color: '#ffff00', effect: () => showAbilityBar('tripleShot', 'CANHÃO TRIPLO', '#ffff00', 10000) },
+        { id: 'reflector', name: 'REFLETOR ATIVO', color: '#ff00ff', effect: () => showAbilityBar('reflector', 'REFLETOR ATIVO', '#ff00ff', 10000) },
+        { id: 'bomb', name: 'CARGA DE PLASMA', color: '#ff4400', effect: () => showAbilityBar('bombs', 'CARGA DE PLASMA', '#ff4400', 10000) }
+    ];
+
+    function showAbilityBar(id, name, color, duration) {
+        powerupsActive[id] = true;
+        const existingBar = document.getElementById(`ability-${id}`);
+        if (existingBar) existingBar.remove();
+        const item = document.createElement('div');
+        item.className = 'ability-item';
+        item.id = `ability-${id}`;
+        item.innerHTML = `<span class="ability-name" style="color: ${color}">${name}</span><div class="progress-bg"><div class="progress-fill" id="fill-${id}" style="background: ${color}"></div></div>`;
+        abilityUI.appendChild(item);
+        let start = Date.now();
+        const updateBar = setInterval(() => {
+            let elapsed = Date.now() - start;
+            let remain = 100 - (elapsed / duration * 100);
+            const fill = document.getElementById(`fill-${id}`);
+            if (fill) fill.style.width = remain + "%";
+            if (elapsed >= duration) { powerupsActive[id] = false; if (item.parentNode) item.remove(); clearInterval(updateBar); }
+        }, 50);
+    }
+
+    // Função para criar a animação do Sprite
+    function createExplosionSprite(x, y, size) {
+        activeExplosions.push({
+            x: x - size/2,
+            y: y - size/2,
+            size: size,
+            frame: 0
+        });
+    }
+
+    function createExplosion(x, y, color, count = 8) {
+        // Agora também chama o sprite
+        createExplosionSprite(x, y, 120);
+
+        if (particles.length > 80) return; 
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x, y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
+                radius: Math.random() * 2 + 1, alpha: 1, color: color || "#ffaa00"
+            });
+        }
+    }
+
+    function addScore(amount, critical = false) {
+        const now = Date.now();
+        if (now - lastKillTime < 2000) {
+            comboCount++;
+            amount *= comboCount;
+            const text = critical ? `CRITICAL x${comboCount}!!` : `COMBO x${comboCount}`;
+            comboTexts.push({ x: player.x, y: player.y - 20, text: text, alpha: 1, color: critical ? "red" : "yellow" });
+        } else {
+            comboCount = 1;
+            if(critical) comboTexts.push({ x: player.x, y: player.y - 20, text: "CRITICAL!", alpha: 1, color: "red" });
+        }
+        lastKillTime = now;
+        score += amount;
+        scoreElement.innerText = score;
+    }
+
+    function triggerBossWarning() {
+        warningUI.style.display = "block";
+        setTimeout(() => { warningUI.style.display = "none"; }, 3000);
+    }
+
+    function nextLevel() {
+        gameLevel++; isBossFight = false; boss.active = false; bossHealthUI.style.display = "none";
+        boss.maxHp += 200; boss.hp = boss.maxHp; boss.speed = Math.min(boss.speed + 1, 15);
+        powerMsg.innerText = "NÍVEL " + gameLevel + " INICIADO!";
+        setTimeout(() => powerMsg.innerText = "", 3000);
+        bossBullets = []; spawnEnemy(); 
+    }
+
+    startButton.addEventListener("click", () => { gameStarted = true; startScreen.style.display = "none"; spawnEnemy(); draw(); });
+    window.addEventListener("keydown", (e) => keys[e.key] = true);
+    window.addEventListener("keyup", (e) => keys[e.key] = false);
+
+    window.addEventListener("keydown", (e) => {
+        if (e.key === " " && gameActive && gameStarted) {
+            const bY = player.y + player.height/2;
+            const isCritical = Math.random() < 0.15;
+            const type = powerupsActive.bombs ? 'bomb' : (isCritical ? 'critical' : 'normal');
+            const damage = isCritical ? 25 : (powerupsActive.bombs ? 12 : 4);
+            const bColor = isCritical ? "#ff0000" : (powerupsActive.bombs ? "#ff4400" : "#00ffff");
+
+            if (powerupsActive.tripleShot) {
+                [ -0.2, 0, 0.2 ].forEach(angle => bullets.push({ 
+                    x: player.x + player.width, y: bY, vx: 14, vy: angle * 10, 
+                    width: isCritical ? 20 : 12, height: isCritical ? 8 : 6, 
+                    type, damage, color: bColor 
+                }));
+            } else {
+                bullets.push({ 
+                    x: player.x + player.width, y: bY, vx: 14, vy: 0, 
+                    width: isCritical ? 20 : 12, height: isCritical ? 8 : 6, 
+                    type, damage, color: bColor 
+                });
+            }
+        }
+    });
+
+    function spawnEnemy() {
+        if (!gameActive || isBossFight || !gameStarted) return;
+        const speedBoost = Math.min(gameLevel, 8);
+        enemies.push({ x: canvas.width, y: Math.random() * (canvas.height - 65), vx: -(4 + Math.random() * 2 + speedBoost), vy: (Math.random() - 0.5) * 3, width: 65, height: 65 });
+        setTimeout(spawnEnemy, 1000);
+    }
+
+    function update() {
+        if (!gameActive || !gameStarted) return;
+
+        playerRotation *= 0.9;
+        let isMoving = false;
+        if ((keys["ArrowUp"] || keys["w"]) && player.y > 0) { player.y -= player.speed; playerRotation = -0.15; isMoving = true; }
+        if ((keys["ArrowDown"] || keys["s"]) && player.y < canvas.height - player.height) { player.y += player.speed; playerRotation = 0.15; isMoving = true; }
+        if ((keys["ArrowLeft"] || keys["a"]) && player.x > 0) player.x -= player.speed;
+        if ((keys["ArrowRight"] || keys["d"]) && player.x < canvas.width - player.width) { player.x += player.speed; isMoving = true; }
+
+        if (isMoving && Math.random() > 0.7) {
+            afterimages.push({ x: player.x, y: player.y, rotation: playerRotation, alpha: 0.3 });
+        }
+        afterimages.forEach(a => a.alpha -= 0.05);
+        afterimages = afterimages.filter(a => a.alpha > 0);
+
+        if (Math.random() > (isMoving ? 0.4 : 0.8)) {
+            engineParticles.push({
+                x: player.x + 5, y: player.y + player.height/2 + (Math.random() - 0.5) * 20,
+                vx: -Math.random() * 5 - 2, vy: (Math.random() - 0.5) * 2,
+                size: Math.random() * 4 + 1, alpha: 1
+            });
+        }
+        engineParticles.forEach(p => { p.x += p.vx; p.y += p.vy; p.alpha -= 0.08; });
+        engineParticles = engineParticles.filter(p => p.alpha > 0);
+
+        starsLayer1.forEach(s => { s.x -= s.speed; if (s.x < 0) s.x = canvas.width; });
+        starsLayer2.forEach(s => { s.x -= s.speed; if (s.x < 0) s.x = canvas.width; });
+
+        if (screenShake > 0) screenShake *= 0.8;
+
+        if (score >= gameLevel * 100 && !isBossFight) { 
+            isBossFight = true; triggerBossWarning();
+            setTimeout(() => { boss.active = true; boss.x = 1100; bossHealthUI.style.display = "block"; hpElement.innerText = boss.hp; }, 3000);
+        }
+
+        bullets = bullets.filter(b => b.x < canvas.width + 10 && b.x > -10);
+        bullets.forEach((b, i) => {
+            b.x += b.vx; b.y += b.vy;
+            enemies.forEach((en, enIdx) => {
+                if (b.x < en.x + en.width && b.x + b.width > en.x && b.y < en.y + en.height && b.y + b.height > en.y) {
+                    createExplosion(en.x + en.width/2, en.y + en.height/2, b.type === 'critical' ? "red" : "#ff3300");
+                    if (Math.random() > 0.8) powerups.push({ x: en.x, y: en.y, width: 45, height: 45, ...types[Math.floor(Math.random() * types.length)] });
+                    enemies.splice(enIdx, 1); bullets.splice(i, 1); addScore(10, b.type === 'critical'); 
+                }
+            });
+            if (boss.active && b.x < boss.x + boss.width && b.x + b.width > boss.x && b.y < boss.y + boss.height && b.y + b.height > boss.y) {
+                createExplosion(b.x, b.y, b.type === 'critical' ? "red" : "#ffff00", 4);
+                boss.hp -= b.damage; bullets.splice(i, 1); hpElement.innerText = boss.hp;
+                if (boss.hp <= 0) { createExplosion(boss.x + boss.width/2, boss.y + boss.height/2, "white", 30); nextLevel(); }
+            }
+        });
+
+        // Update frames do Sprite
+        activeExplosions.forEach(exp => {
+            exp.frame += EXPLOSION_SPEED;
+        });
+        activeExplosions = activeExplosions.filter(exp => exp.frame < EXPLOSION_FRAMES);
+
+        if (boss.active) {
+            boss.x += boss.speed * boss.dirX; boss.y += boss.speed * boss.dirY;
+            if (boss.x < 450 || (boss.x > canvas.width - boss.width && boss.dirX > 0)) boss.dirX *= -1;
+            if (boss.y <= 0 || boss.y >= canvas.height - boss.height) boss.dirY *= -1;
+            if (Date.now() - lastBossShot > 400) { 
+                bossBullets.push({ x: boss.x, y: boss.y + boss.height/2, vx: -15, vy: (Math.random() - 0.5) * 10, width: 25, height: 8, reflected: false });
+                lastBossShot = Date.now();
+            }
+        }
+
+        bossBullets = bossBullets.filter(bb => bb.x > -20 && bb.x < canvas.width + 20);
+        bossBullets.forEach((bb, i) => {
+            bb.x += bb.vx; bb.y += bb.vy;
+            if (powerupsActive.reflector && bb.x < player.x + 80 && bb.x > player.x && bb.y < player.y + player.height && bb.y + bb.height > player.y) {
+                bb.vx *= -1.5; bb.reflected = true; createExplosion(bb.x, bb.y, "#ff00ff", 3);
+            }
+            if (bb.reflected && bb.x > boss.x) { boss.hp -= 15; hpElement.innerText = boss.hp; bossBullets.splice(i, 1); }
+            if (!bb.reflected && bb.x < player.x + player.width && bb.x + bb.width > player.x && bb.y < player.y + player.height && bb.y + bb.height > player.y) {
+                bossBullets.splice(i, 1); handleHit();
+            }
+        });
+
+        enemies = enemies.filter(en => en.x > -80);
+        enemies.forEach((en, i) => {
+            en.x += en.vx; en.y += en.vy;
+            if (player.x < en.x + en.width && player.x + player.width > en.x && player.y < en.y + en.height && player.y + player.height > en.y) {
+                enemies.splice(i, 1); handleHit();
+            }
+        });
+
+        powerups = powerups.filter(p => p.x > -50);
+        powerups.forEach((p, i) => {
+            p.x -= 3;
+            if (player.x < p.x + p.width && player.x + player.width > p.x && player.y < p.y + p.height && player.y + player.height > p.y) {
+                p.effect(); powerups.splice(i, 1);
+            }
+        });
+        
+        particles = particles.filter(p => p.alpha > 0.1);
+        comboTexts.forEach(ct => { ct.y -= 1; ct.alpha -= 0.03; });
+        comboTexts = comboTexts.filter(ct => ct.alpha > 0);
+    }
+
+    function handleHit() {
+        screenShake = 10;
+        if (powerupsActive.shield) { powerupsActive.shield = false; createExplosion(player.x+player.width/2, player.y+player.height/2, "#00fbff", 15); return; }
+        lives--; livesElement.innerText = lives; 
+        comboCount = 0; createExplosion(player.x+player.width/2, player.y+player.height/2, "white", 15);
+        if (lives <= 0) location.reload();
+    }
+
+    function draw() {
+        ctx.save();
+        if (screenShake > 0.5) ctx.translate(Math.random() * screenShake - screenShake/2, Math.random() * screenShake - screenShake/2);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        starsLayer1.forEach(s => { ctx.fillRect(s.x, s.y, s.size, s.size); });
+        ctx.fillStyle = "rgba(255,255,255,0.6)";
+        starsLayer2.forEach(s => { ctx.fillRect(s.x, s.y, s.size, s.size); });
+
+        if (images.bg.complete) ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
+
+        afterimages.forEach(a => {
+            ctx.save(); ctx.globalAlpha = a.alpha;
+            ctx.translate(a.x + player.width/2, a.y + player.height/2);
+            ctx.rotate(a.rotation);
+            if (images.player.complete) ctx.drawImage(images.player, -player.width/2, -player.height/2, player.width, player.height);
+            ctx.restore();
+        });
+        ctx.globalAlpha = 1;
+
+        engineParticles.forEach(p => {
+            ctx.globalAlpha = p.alpha; ctx.fillStyle = "#00fbff";
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+        });
+
+        // Desenhar Partículas Legadas
+        particles.forEach(p => {
+            p.x += p.vx; p.y += p.vy; p.alpha -= 0.04; 
+            ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2); ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+
+        // --- DESENHAR SPRITES DE EXPLOSÃO ---
+        activeExplosions.forEach(exp => {
+            if (explosionSprite.complete) {
+                const sw = explosionSprite.width / EXPLOSION_FRAMES;
+                const sh = explosionSprite.height;
+                const frameX = Math.floor(exp.frame) * sw;
+                
+                ctx.drawImage(
+                    explosionSprite, 
+                    frameX, 0, sw, sh, // Source
+                    exp.x, exp.y, exp.size, exp.size // Destination
+                );
+            }
+        });
+
+        comboTexts.forEach(ct => {
+            ctx.globalAlpha = ct.alpha; ctx.fillStyle = ct.color;
+            ctx.font = "bold 18px Segoe UI";
+            ctx.fillText(ct.text, ct.x, ct.y);
+        });
+        ctx.globalAlpha = 1;
+
+        ctx.save(); ctx.translate(player.x + player.width/2, player.y + player.height/2); ctx.rotate(playerRotation);
+        if (images.player.complete) ctx.drawImage(images.player, -player.width/2, -player.height/2, player.width, player.height);
+        ctx.restore();
+
+        if (boss.active && images.boss.complete) ctx.drawImage(images.boss, boss.x, boss.y, boss.width, boss.height);
+        
+        if (powerupsActive.shield) { 
+            ctx.strokeStyle = "#00fbff"; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(player.x+player.width/2, player.y+player.height/2, player.width*0.8, 0, Math.PI*2); ctx.stroke();
+        }
+
+        bullets.forEach(b => { ctx.fillStyle = b.color; ctx.fillRect(b.x, b.y, b.width, b.height); });
+        bossBullets.forEach(bb => { ctx.fillStyle = "white"; ctx.fillRect(bb.x, bb.y, bb.width, bb.height); });
+        enemies.forEach(en => { if (images.enemy.complete) ctx.drawImage(images.enemy, en.x, en.y, en.width, en.height); });
+        
+        powerups.forEach(p => {
+            const img = pImgs[p.id];
+            if (img && img.complete) ctx.drawImage(img, p.x, p.y, p.width, p.height);
+            else { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.width, p.height); }
+        });
+
+        ctx.restore(); update();
+        if (gameStarted) requestAnimationFrame(draw);
+    }
+</script>
+</body>
+</html>
