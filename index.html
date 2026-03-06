@@ -135,12 +135,24 @@
     canvas.width = 1000;
     canvas.height = 500;
 
-    // --- CONFIGURAÇÃO DE SPRITES DE EXPLOSÃO ---
     const explosionSprite = new Image();
     explosionSprite.src = 'explosao_sheet.png'; 
-    const EXPLOSION_FRAMES = 8; // Número de colunas no seu spritesheet
-    const EXPLOSION_SPEED = 0.2; // Velocidade da animação
+    const EXPLOSION_FRAMES = 8;
+    const EXPLOSION_SPEED = 0.2;
     let activeExplosions = [];
+
+    // --- SEÇÃO: SPRITE DE TIRO ---
+    const shootSprite = new Image();
+    shootSprite.src = 'tiro_sheet.png'; 
+    const SHOOT_FRAMES = 4; 
+    const SHOOT_SPEED = 0.4;
+    let activeShootEffects = [];
+
+    function createShootEffect(x, y, size, isEnemy = false) {
+        activeShootEffects.push({
+            x: x, y: y - size/2, size: size, frame: 0, isEnemy: isEnemy
+        });
+    }
 
     let screenShake = 0;
     let playerRotation = 0;
@@ -177,9 +189,9 @@
     let powerupsActive = { shield: false, tripleShot: false, reflector: false, bombs: false };
 
     const player = { x: 50, y: 225, width: 60, height: 60, speed: 7 };
-    const boss = { x: 1100, y: 150, width: 220, height: 170, hp: 500, maxHp: 500, active: false, speed: 8, dirX: -1, dirY: 1 };
+    const boss = { x: 1100, y: 150, width: 220, height: 170, hp: 500, maxHp: 500, active: false, speed: 8, dirX: -1, dirY: 1, isDying: false };
     
-    let bullets = [], bossBullets = [], enemies = [], powerups = [], particles = [];
+    let bullets = [], bossBullets = [], enemies = [], powerups = [], particles = [], enemyBullets = [];
     const keys = {};
 
     const types = [
@@ -209,7 +221,6 @@
         }, 50);
     }
 
-    // Função para criar a animação do Sprite
     function createExplosionSprite(x, y, size) {
         activeExplosions.push({
             x: x - size/2,
@@ -220,14 +231,12 @@
     }
 
     function createExplosion(x, y, color, count = 8) {
-        // Agora também chama o sprite
         createExplosionSprite(x, y, 120);
-
-        if (particles.length > 80) return; 
+        if (particles.length > 200) return; 
         for (let i = 0; i < count; i++) {
             particles.push({
                 x, y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8,
-                radius: Math.random() * 2 + 1, alpha: 1, color: color || "#ffaa00"
+                radius: Math.random() * 3 + 1, alpha: 1, color: color || "#ffaa00"
             });
         }
     }
@@ -254,11 +263,11 @@
     }
 
     function nextLevel() {
-        gameLevel++; isBossFight = false; boss.active = false; bossHealthUI.style.display = "none";
+        gameLevel++; isBossFight = false; boss.active = false; boss.isDying = false; bossHealthUI.style.display = "none";
         boss.maxHp += 200; boss.hp = boss.maxHp; boss.speed = Math.min(boss.speed + 1, 15);
         powerMsg.innerText = "NÍVEL " + gameLevel + " INICIADO!";
         setTimeout(() => powerMsg.innerText = "", 3000);
-        bossBullets = []; spawnEnemy(); 
+        bossBullets = []; enemyBullets = []; spawnEnemy(); 
     }
 
     startButton.addEventListener("click", () => { gameStarted = true; startScreen.style.display = "none"; spawnEnemy(); draw(); });
@@ -268,11 +277,11 @@
     window.addEventListener("keydown", (e) => {
         if (e.key === " " && gameActive && gameStarted) {
             const bY = player.y + player.height/2;
+            createShootEffect(player.x + player.width - 5, bY, 40, false);
             const isCritical = Math.random() < 0.15;
             const type = powerupsActive.bombs ? 'bomb' : (isCritical ? 'critical' : 'normal');
             const damage = isCritical ? 25 : (powerupsActive.bombs ? 12 : 4);
             const bColor = isCritical ? "#ff0000" : (powerupsActive.bombs ? "#ff4400" : "#00ffff");
-
             if (powerupsActive.tripleShot) {
                 [ -0.2, 0, 0.2 ].forEach(angle => bullets.push({ 
                     x: player.x + player.width, y: bY, vx: 14, vy: angle * 10, 
@@ -292,117 +301,132 @@
     function spawnEnemy() {
         if (!gameActive || isBossFight || !gameStarted) return;
         const speedBoost = Math.min(gameLevel, 8);
-        enemies.push({ x: canvas.width, y: Math.random() * (canvas.height - 65), vx: -(4 + Math.random() * 2 + speedBoost), vy: (Math.random() - 0.5) * 3, width: 65, height: 65 });
-        setTimeout(spawnEnemy, 1000);
+        enemies.push({ 
+            x: canvas.width, 
+            y: Math.random() * (canvas.height - 65), 
+            vx: -(4 + Math.random() * 2 + speedBoost/2), 
+            width: 65, height: 65,
+            lastShot: Date.now(),
+            shootDelay: 1500 + Math.random() * 2500,
+            amplitude: 2 + Math.random() * 3,
+            phase: Math.random() * Math.PI * 2
+        });
+        setTimeout(spawnEnemy, 1200 - (gameLevel * 20));
     }
 
     function update() {
-        if (!gameActive || !gameStarted) return;
+        if (!gameStarted) return;
 
-        playerRotation *= 0.9;
-        let isMoving = false;
-        if ((keys["ArrowUp"] || keys["w"]) && player.y > 0) { player.y -= player.speed; playerRotation = -0.15; isMoving = true; }
-        if ((keys["ArrowDown"] || keys["s"]) && player.y < canvas.height - player.height) { player.y += player.speed; playerRotation = 0.15; isMoving = true; }
-        if ((keys["ArrowLeft"] || keys["a"]) && player.x > 0) player.x -= player.speed;
-        if ((keys["ArrowRight"] || keys["d"]) && player.x < canvas.width - player.width) { player.x += player.speed; isMoving = true; }
+        if (gameActive) {
+            playerRotation *= 0.9;
+            if ((keys["ArrowUp"] || keys["w"]) && player.y > 0) { player.y -= player.speed; playerRotation = -0.15; }
+            if ((keys["ArrowDown"] || keys["s"]) && player.y < canvas.height - player.height) { player.y += player.speed; playerRotation = 0.15; }
+            if ((keys["ArrowLeft"] || keys["a"]) && player.x > 0) player.x -= player.speed;
+            if ((keys["ArrowRight"] || keys["d"]) && player.x < canvas.width - player.width) player.x += player.speed;
 
-        if (isMoving && Math.random() > 0.7) {
-            afterimages.push({ x: player.x, y: player.y, rotation: playerRotation, alpha: 0.3 });
+            if (score >= gameLevel * 100 && !isBossFight) { 
+                isBossFight = true; triggerBossWarning();
+                setTimeout(() => { boss.active = true; boss.isDying = false; boss.x = 1100; bossHealthUI.style.display = "block"; hpElement.innerText = boss.hp; }, 3000);
+            }
         }
-        afterimages.forEach(a => a.alpha -= 0.05);
-        afterimages = afterimages.filter(a => a.alpha > 0);
-
-        if (Math.random() > (isMoving ? 0.4 : 0.8)) {
-            engineParticles.push({
-                x: player.x + 5, y: player.y + player.height/2 + (Math.random() - 0.5) * 20,
-                vx: -Math.random() * 5 - 2, vy: (Math.random() - 0.5) * 2,
-                size: Math.random() * 4 + 1, alpha: 1
-            });
-        }
-        engineParticles.forEach(p => { p.x += p.vx; p.y += p.vy; p.alpha -= 0.08; });
-        engineParticles = engineParticles.filter(p => p.alpha > 0);
 
         starsLayer1.forEach(s => { s.x -= s.speed; if (s.x < 0) s.x = canvas.width; });
         starsLayer2.forEach(s => { s.x -= s.speed; if (s.x < 0) s.x = canvas.width; });
 
         if (screenShake > 0) screenShake *= 0.8;
 
-        if (score >= gameLevel * 100 && !isBossFight) { 
-            isBossFight = true; triggerBossWarning();
-            setTimeout(() => { boss.active = true; boss.x = 1100; bossHealthUI.style.display = "block"; hpElement.innerText = boss.hp; }, 3000);
-        }
-
-        bullets = bullets.filter(b => b.x < canvas.width + 10 && b.x > -10);
         bullets.forEach((b, i) => {
             b.x += b.vx; b.y += b.vy;
-            enemies.forEach((en, enIdx) => {
-                if (b.x < en.x + en.width && b.x + b.width > en.x && b.y < en.y + en.height && b.y + b.height > en.y) {
-                    createExplosion(en.x + en.width/2, en.y + en.height/2, b.type === 'critical' ? "red" : "#ff3300");
-                    if (Math.random() > 0.8) powerups.push({ x: en.x, y: en.y, width: 45, height: 45, ...types[Math.floor(Math.random() * types.length)] });
-                    enemies.splice(enIdx, 1); bullets.splice(i, 1); addScore(10, b.type === 'critical'); 
+            if (gameActive) {
+                enemies.forEach((en, enIdx) => {
+                    if (b.x < en.x + en.width && b.x + b.width > en.x && b.y < en.y + en.height && b.y + b.height > en.y) {
+                        createExplosion(en.x + en.width/2, en.y + en.height/2, b.type === 'critical' ? "red" : "#ff3300");
+                        enemies.splice(enIdx, 1); bullets.splice(i, 1); addScore(10, b.type === 'critical'); 
+                    }
+                });
+            }
+
+            if (boss.active && !boss.isDying && b.x < boss.x + boss.width && b.x + b.width > boss.x && b.y < boss.y + boss.height && b.y + b.height > boss.y) {
+                boss.hp -= b.damage; 
+                bullets.splice(i, 1); 
+                hpElement.innerText = Math.max(0, boss.hp);
+                if (boss.hp <= 0) {
+                    boss.isDying = true; boss.active = false; gameActive = false; 
+                    let explosionCount = 0;
+                    const totalExplosions = 100; 
+                    const deathInterval = setInterval(() => {
+                        const rx = boss.x + Math.random() * boss.width;
+                        const ry = boss.y + Math.random() * boss.height;
+                        createExplosionSprite(rx, ry, 200);
+                        createExplosion(rx, ry, "orange", 10);
+                        screenShake = 15; 
+                        explosionCount++;
+                        if (explosionCount >= totalExplosions) {
+                            clearInterval(deathInterval);
+                            createExplosion(boss.x + boss.width/2, boss.y + boss.height/2, "white", 100);
+                            setTimeout(() => { gameActive = true; nextLevel(); }, 1000);
+                        }
+                    }, 50); 
+                }
+            }
+        });
+
+        activeExplosions.forEach(exp => { exp.frame += EXPLOSION_SPEED; });
+        activeExplosions = activeExplosions.filter(exp => exp.frame < EXPLOSION_FRAMES);
+        activeShootEffects.forEach(eff => { eff.frame += SHOOT_SPEED; });
+        activeShootEffects = activeShootEffects.filter(eff => eff.frame < SHOOT_FRAMES);
+
+        if (gameActive) {
+            if (boss.active) {
+                boss.x += boss.speed * boss.dirX; boss.y += boss.speed * boss.dirY;
+                if (boss.x < 450 || boss.x > canvas.width - boss.width) boss.dirX *= -1;
+                if (boss.y <= 0 || boss.y >= canvas.height - boss.height) boss.dirY *= -1;
+                if (Date.now() - lastBossShot > 400) { 
+                    createShootEffect(boss.x, boss.y + boss.height/2, 60, true);
+                    bossBullets.push({ x: boss.x, y: boss.y + boss.height/2, vx: -15, vy: (Math.random() - 0.5) * 10, width: 25, height: 8 });
+                    lastBossShot = Date.now();
+                }
+            }
+            bossBullets.forEach((bb, i) => {
+                bb.x += bb.vx;
+                if (bb.x < player.x + player.width && bb.x + bb.width > player.x && bb.y < player.y + player.height && bb.y + bb.height > player.y) {
+                    bossBullets.splice(i, 1); handleHit();
                 }
             });
-            if (boss.active && b.x < boss.x + boss.width && b.x + b.width > boss.x && b.y < boss.y + boss.height && b.y + b.height > boss.y) {
-                createExplosion(b.x, b.y, b.type === 'critical' ? "red" : "#ffff00", 4);
-                boss.hp -= b.damage; bullets.splice(i, 1); hpElement.innerText = boss.hp;
-                if (boss.hp <= 0) { createExplosion(boss.x + boss.width/2, boss.y + boss.height/2, "white", 30); nextLevel(); }
-            }
-        });
 
-        // Update frames do Sprite
-        activeExplosions.forEach(exp => {
-            exp.frame += EXPLOSION_SPEED;
-        });
-        activeExplosions = activeExplosions.filter(exp => exp.frame < EXPLOSION_FRAMES);
+            // MOVIMENTO E TIRO DOS INIMIGOS
+            enemies.forEach((en, i) => {
+                en.x += en.vx;
+                en.y += Math.sin(Date.now() / 300 + en.phase) * en.amplitude;
 
-        if (boss.active) {
-            boss.x += boss.speed * boss.dirX; boss.y += boss.speed * boss.dirY;
-            if (boss.x < 450 || (boss.x > canvas.width - boss.width && boss.dirX > 0)) boss.dirX *= -1;
-            if (boss.y <= 0 || boss.y >= canvas.height - boss.height) boss.dirY *= -1;
-            if (Date.now() - lastBossShot > 400) { 
-                bossBullets.push({ x: boss.x, y: boss.y + boss.height/2, vx: -15, vy: (Math.random() - 0.5) * 10, width: 25, height: 8, reflected: false });
-                lastBossShot = Date.now();
-            }
+                if (Date.now() - en.lastShot > en.shootDelay) {
+                    createShootEffect(en.x, en.y + en.height/2, 35, true);
+                    enemyBullets.push({ x: en.x, y: en.y + en.height/2, vx: -8, width: 15, height: 6 });
+                    en.lastShot = Date.now();
+                }
+
+                if (player.x < en.x + en.width && player.x + player.width > en.x && player.y < en.y + en.height && player.y + player.height > en.y) {
+                    enemies.splice(i, 1); handleHit();
+                }
+            });
+
+            enemyBullets.forEach((eb, i) => {
+                eb.x += eb.vx;
+                if (eb.x < player.x + player.width && eb.x + eb.width > player.x && eb.y < player.y + player.height && eb.y + eb.height > player.y) {
+                    enemyBullets.splice(i, 1); handleHit();
+                }
+                if (eb.x < -50) enemyBullets.splice(i, 1);
+            });
         }
-
-        bossBullets = bossBullets.filter(bb => bb.x > -20 && bb.x < canvas.width + 20);
-        bossBullets.forEach((bb, i) => {
-            bb.x += bb.vx; bb.y += bb.vy;
-            if (powerupsActive.reflector && bb.x < player.x + 80 && bb.x > player.x && bb.y < player.y + player.height && bb.y + bb.height > player.y) {
-                bb.vx *= -1.5; bb.reflected = true; createExplosion(bb.x, bb.y, "#ff00ff", 3);
-            }
-            if (bb.reflected && bb.x > boss.x) { boss.hp -= 15; hpElement.innerText = boss.hp; bossBullets.splice(i, 1); }
-            if (!bb.reflected && bb.x < player.x + player.width && bb.x + bb.width > player.x && bb.y < player.y + player.height && bb.y + bb.height > player.y) {
-                bossBullets.splice(i, 1); handleHit();
-            }
-        });
-
-        enemies = enemies.filter(en => en.x > -80);
-        enemies.forEach((en, i) => {
-            en.x += en.vx; en.y += en.vy;
-            if (player.x < en.x + en.width && player.x + player.width > en.x && player.y < en.y + en.height && player.y + player.height > en.y) {
-                enemies.splice(i, 1); handleHit();
-            }
-        });
-
-        powerups = powerups.filter(p => p.x > -50);
-        powerups.forEach((p, i) => {
-            p.x -= 3;
-            if (player.x < p.x + p.width && player.x + player.width > p.x && player.y < p.y + p.height && player.y + player.height > p.y) {
-                p.effect(); powerups.splice(i, 1);
-            }
-        });
         
+        particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.alpha -= 0.02; });
         particles = particles.filter(p => p.alpha > 0.1);
-        comboTexts.forEach(ct => { ct.y -= 1; ct.alpha -= 0.03; });
-        comboTexts = comboTexts.filter(ct => ct.alpha > 0);
     }
 
     function handleHit() {
         screenShake = 10;
-        if (powerupsActive.shield) { powerupsActive.shield = false; createExplosion(player.x+player.width/2, player.y+player.height/2, "#00fbff", 15); return; }
+        if (powerupsActive.shield) { powerupsActive.shield = false; return; }
         lives--; livesElement.innerText = lives; 
-        comboCount = 0; createExplosion(player.x+player.width/2, player.y+player.height/2, "white", 15);
         if (lives <= 0) location.reload();
     }
 
@@ -411,54 +435,43 @@
         if (screenShake > 0.5) ctx.translate(Math.random() * screenShake - screenShake/2, Math.random() * screenShake - screenShake/2);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        ctx.fillStyle = "rgba(255,255,255,0.2)";
-        starsLayer1.forEach(s => { ctx.fillRect(s.x, s.y, s.size, s.size); });
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        starsLayer2.forEach(s => { ctx.fillRect(s.x, s.y, s.size, s.size); });
+        starsLayer1.forEach(s => { ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fillRect(s.x, s.y, s.size, s.size); });
+        starsLayer2.forEach(s => { ctx.fillStyle = "rgba(255,255,255,0.6)"; ctx.fillRect(s.x, s.y, s.size, s.size); });
 
-        if (images.bg.complete) ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
-
-        afterimages.forEach(a => {
-            ctx.save(); ctx.globalAlpha = a.alpha;
-            ctx.translate(a.x + player.width/2, a.y + player.height/2);
-            ctx.rotate(a.rotation);
-            if (images.player.complete) ctx.drawImage(images.player, -player.width/2, -player.height/2, player.width, player.height);
+        if ((boss.active || boss.isDying) && images.boss.complete) {
+            ctx.save();
+            if (boss.isDying) ctx.filter = `brightness(${1.5 + Math.random()}) hue-rotate(${Math.random()*360}deg)`;
+            ctx.drawImage(images.boss, boss.x, boss.y, boss.width, boss.height);
             ctx.restore();
-        });
-        ctx.globalAlpha = 1;
+        }
 
-        engineParticles.forEach(p => {
-            ctx.globalAlpha = p.alpha; ctx.fillStyle = "#00fbff";
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
-        });
-
-        // Desenhar Partículas Legadas
-        particles.forEach(p => {
-            p.x += p.vx; p.y += p.vy; p.alpha -= 0.04; 
-            ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color;
-            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2); ctx.fill();
-        });
-        ctx.globalAlpha = 1;
-
-        // --- DESENHAR SPRITES DE EXPLOSÃO ---
         activeExplosions.forEach(exp => {
             if (explosionSprite.complete) {
                 const sw = explosionSprite.width / EXPLOSION_FRAMES;
-                const sh = explosionSprite.height;
                 const frameX = Math.floor(exp.frame) * sw;
-                
-                ctx.drawImage(
-                    explosionSprite, 
-                    frameX, 0, sw, sh, // Source
-                    exp.x, exp.y, exp.size, exp.size // Destination
-                );
+                ctx.drawImage(explosionSprite, frameX, 0, sw, explosionSprite.height, exp.x, exp.y, exp.size, exp.size);
             }
         });
 
-        comboTexts.forEach(ct => {
-            ctx.globalAlpha = ct.alpha; ctx.fillStyle = ct.color;
-            ctx.font = "bold 18px Segoe UI";
-            ctx.fillText(ct.text, ct.x, ct.y);
+        activeShootEffects.forEach(eff => {
+            if (shootSprite.complete) {
+                const sw = shootSprite.width / SHOOT_FRAMES;
+                const frameX = Math.floor(eff.frame) * sw;
+                ctx.save();
+                if (eff.isEnemy) {
+                    ctx.translate(eff.x, eff.y + eff.size/2);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(shootSprite, frameX, 0, sw, shootSprite.height, 0, -eff.size/2, eff.size, eff.size);
+                } else {
+                    ctx.drawImage(shootSprite, frameX, 0, sw, shootSprite.height, eff.x, eff.y, eff.size, eff.size);
+                }
+                ctx.restore();
+            }
+        });
+
+        particles.forEach(p => {
+            ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2); ctx.fill();
         });
         ctx.globalAlpha = 1;
 
@@ -466,25 +479,22 @@
         if (images.player.complete) ctx.drawImage(images.player, -player.width/2, -player.height/2, player.width, player.height);
         ctx.restore();
 
-        if (boss.active && images.boss.complete) ctx.drawImage(images.boss, boss.x, boss.y, boss.width, boss.height);
-        
-        if (powerupsActive.shield) { 
-            ctx.strokeStyle = "#00fbff"; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(player.x+player.width/2, player.y+player.height/2, player.width*0.8, 0, Math.PI*2); ctx.stroke();
-        }
-
         bullets.forEach(b => { ctx.fillStyle = b.color; ctx.fillRect(b.x, b.y, b.width, b.height); });
         bossBullets.forEach(bb => { ctx.fillStyle = "white"; ctx.fillRect(bb.x, bb.y, bb.width, bb.height); });
-        enemies.forEach(en => { if (images.enemy.complete) ctx.drawImage(images.enemy, en.x, en.y, en.width, en.height); });
         
-        powerups.forEach(p => {
-            const img = pImgs[p.id];
-            if (img && img.complete) ctx.drawImage(img, p.x, p.y, p.width, p.height);
-            else { ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.width, p.height); }
+        enemyBullets.forEach(eb => {
+            ctx.fillStyle = "#ff5500";
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#ff5500";
+            ctx.fillRect(eb.x, eb.y, eb.width, eb.height);
+            ctx.shadowBlur = 0;
         });
 
-        ctx.restore(); update();
-        if (gameStarted) requestAnimationFrame(draw);
+        enemies.forEach(en => { if (images.enemy.complete) ctx.drawImage(images.enemy, en.x, en.y, en.width, en.height); });
+
+        ctx.restore(); 
+        update();
+        requestAnimationFrame(draw);
     }
 </script>
 </body>
